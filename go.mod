@@ -1,3 +1,3 @@
-module github.com/bbytiger/email-tracker-go
+module github.com/bbytiger/goemailtracker
 
 go 1.19
