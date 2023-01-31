@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 )
 
 // extend to implement your own encoding/encryption
@@ -19,9 +21,21 @@ type RSAEncoder struct {
 }
 
 func NewRSAEncoder() *RSAEncoder {
-	enc := &RSAEncoder{}
-	enc.GeneratePrivateKey()
-	return enc
+	return &RSAEncoder{}
+}
+
+func (d *RSAEncoder) LoadPublicPrivateKeys(pub []byte, priv []byte) {
+	pubBlock, _ := pem.Decode(pub)
+	privBlock, _ := pem.Decode(priv)
+	pubKey, pubErr := x509.ParsePKCS1PublicKey(pubBlock.Bytes)
+	privKey, privErr := x509.ParsePKCS1PrivateKey(privBlock.Bytes)
+	if pubErr != nil {
+		panic(pubErr)
+	}
+	if privErr != nil {
+		panic(pubErr)
+	}
+	privKey.PublicKey = *pubKey
 }
 
 func (d *RSAEncoder) GeneratePrivateKey() {
