@@ -1,7 +1,11 @@
 package emailtracker
 
-// example redis connector implementation
+// extend to connect your external service
+type ExternalConnector interface {
+	NotifyExternal(metadata *MailMetadata)
+}
 
+// example redis connector implementation
 type RedisConnector struct {
 }
 
