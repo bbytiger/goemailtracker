@@ -8,21 +8,39 @@ import (
 	"time"
 )
 
+type Action string
+
+const (
+	AppendPixel Action = "appendPixel"
+	ServePixel  Action = "servePixel"
+)
+
+type Status string
+
+const (
+	Attached  Status = "attached"
+	Opened    Status = "opened"
+	Responded Status = "responded"
+)
+
 type EmailTracker struct {
-	BaseURL       *url.URL
-	PixelPath     string
-	Pixel         []byte
-	PixelMimetype string
+	BaseURL         *url.URL
+	ActionToURLPath map[Action]string
+	Pixel           []byte
+	PixelMimetype   string
 	Encoder
 	ExternalConnector
 	Logger
 }
 
 type MailMetadata struct {
-	Timestamp  time.Time
-	UserAgent  string
-	UserIP     string
-	SenderInfo *MailPII
+	Timestamp    time.Time
+	UserAgent    string
+	UserIP       string
+	Action       Action
+	StatusUpdate Status
+	HTML         string
+	SenderInfo   *MailPII
 }
 
 // sender's personal identifying info
@@ -34,11 +52,23 @@ type MailPII struct {
 }
 
 func NewEmailTracker(
+	baseUrl string,
+	appendPath string,
+	servePath string,
 	encoder Encoder,
 	connector ExternalConnector,
 	logger Logger,
 ) *EmailTracker {
+	baseURL, err := url.Parse(baseUrl)
+	if err != nil {
+		panic(err)
+	}
 	return &EmailTracker{
+		BaseURL: baseURL,
+		ActionToURLPath: map[Action]string{
+			AppendPixel: appendPath,
+			ServePixel:  servePath,
+		},
 		Pixel: append( // transparent 1x1 pixel
 			[]byte("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC"),
 			[]byte("0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")...,
@@ -77,22 +107,41 @@ func (tracker *EmailTracker) GetURLFromPII(pii *MailPII) (*url.URL, error) {
 	params.Add("tr", string(encodedBytes))
 
 	baseURL, _ := url.Parse(tracker.BaseURL.String())
-	baseURL.Path += tracker.PixelPath
+	baseURL.Path += tracker.ActionToURLPath[ServePixel]
 	baseURL.RawQuery = params.Encode()
 
 	return baseURL, nil
 }
 
 func (tracker *EmailTracker) ExtractMetadata(r *http.Request) (*MailMetadata, error) {
+	// get PII
+	if tracker.ActionToURLPath[ServePixel] != r.URL.Path {
+		return nil, errors.New("ExtractMetadata can only be called on ServePixel action")
+	}
 	pii, err := tracker.GetPIIFromQueryParams(r.URL)
 	if err != nil {
 		tracker.Logger.LogPkgError(err)
 		return nil, err
 	}
+
+	// find action based on path
+	action := Action("")
+	for key, path := range tracker.ActionToURLPath {
+		if path == r.URL.Path {
+			action = key
+		}
+	}
+	if action == Action("") {
+		actionErr := errors.New("failure parsing action from url path")
+		tracker.Logger.LogPkgError(actionErr)
+		return nil, actionErr
+	}
+
 	return &MailMetadata{
 		Timestamp:  time.Now(),
 		UserAgent:  r.Header.Get("User-Agent"),
 		UserIP:     r.Header.Get("X-Forwarded-For"),
+		Action:     action,
 		SenderInfo: pii,
 	}, nil
 }
@@ -109,14 +158,12 @@ func (tracker *EmailTracker) ServePixelHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// invoke external connector
-	if tracker.ExternalConnector != nil {
-		metadata, err := tracker.ExtractMetadata(r)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		tracker.ExternalConnector.NotifyExternal(metadata)
+	metadata, err := tracker.ExtractMetadata(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
+	tracker.ExternalConnector.NotifyExternal(metadata)
 
 	// write tracking pixel
 	w.WriteHeader(http.StatusOK)

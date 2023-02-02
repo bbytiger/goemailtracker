@@ -2,12 +2,17 @@
 
 ## Quickstart
 
-
-
 ## Encryption
 
-Work in progress.
+Done.
 
 ## Authentication Middleware
 
 Exercise left to the reader.
+
+### Todo
+
+- [ ] unit testing
+- [ ] link tracking implementation
+- [ ] deploy to official ci tool to get the builld tags
+- [ ] write API design and architecture

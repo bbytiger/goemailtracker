@@ -70,6 +70,7 @@ func (tracker *EmailTracker) AppendPixelToHTML(
 	return b.String(), nil
 }
 
+// TODO: completely rewrite this endpoint
 func (tracker *EmailTracker) ServeAppendPixelHandler(w http.ResponseWriter, r *http.Request) {
 	// handle logging
 	tracker.Logger.LogRequest(r)
@@ -104,6 +105,9 @@ func (tracker *EmailTracker) ServeAppendPixelHandler(w http.ResponseWriter, r *h
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	// invoke external connector
+	tracker.ExternalConnector.NotifyExternal(metadata)
 
 	// write tracking pixel
 	w.WriteHeader(http.StatusOK)
