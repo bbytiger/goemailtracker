@@ -18,20 +18,11 @@ const (
 type Status string
 
 const (
+	Untracked Status = "untracked"
 	Attached  Status = "attached"
 	Opened    Status = "opened"
 	Responded Status = "responded"
 )
-
-type EmailTracker struct {
-	BaseURL         *url.URL
-	ActionToURLPath map[Action]string
-	Pixel           []byte
-	PixelMimetype   string
-	Encoder
-	ExternalConnector
-	Logger
-}
 
 type MailMetadata struct {
 	Timestamp    time.Time
@@ -49,6 +40,16 @@ type MailPII struct {
 	SenderEmail string `json:"sender_email"`
 	RecvEmail   string `json:"recv_email"`
 	EmailId     string `json:"email_id"`
+}
+
+type EmailTracker struct {
+	BaseURL         *url.URL
+	ActionToURLPath map[Action]string
+	Pixel           []byte
+	PixelMimetype   string
+	Encoder
+	ExternalConnector
+	Logger
 }
 
 func NewEmailTracker(
@@ -115,8 +116,8 @@ func (tracker *EmailTracker) GetURLFromPII(pii *MailPII) (*url.URL, error) {
 
 func (tracker *EmailTracker) ExtractMetadata(r *http.Request) (*MailMetadata, error) {
 	// get PII
-	if tracker.ActionToURLPath[ServePixel] != r.URL.Path {
-		return nil, errors.New("ExtractMetadata can only be called on ServePixel action")
+	if tracker.ActionToURLPath[AppendPixel] == r.URL.Path {
+		return nil, errors.New("ExtractMetadata cannot be called on AppendPixel action")
 	}
 	pii, err := tracker.GetPIIFromQueryParams(r.URL)
 	if err != nil {
@@ -163,7 +164,12 @@ func (tracker *EmailTracker) ServePixelHandler(w http.ResponseWriter, r *http.Re
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	tracker.ExternalConnector.NotifyExternal(metadata)
+	connectorErr := tracker.ExternalConnector.NotifyExternal(metadata)
+	if connectorErr != nil {
+		tracker.Logger.LogEndpointError(connectorErr)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
 	// write tracking pixel
 	w.WriteHeader(http.StatusOK)
