@@ -23,9 +23,9 @@ type RedisConnector struct {
 	Client *redis.Client
 }
 
-func NewConnector(opt *redis.Options) *RedisConnector {
+func NewRedisConnector(ctx context.Context, opt *redis.Options) *RedisConnector {
 	return &RedisConnector{
-		Ctx:    context.Background(),
+		Ctx:    ctx,
 		Client: redis.NewClient(opt),
 	}
 }
@@ -36,7 +36,6 @@ type MailMetadataCompressed struct {
 	UserIP       string    `json:"user_ip"`
 	Action       string    `json:"action"`
 	StatusUpdate string    `json:"status"`
-	HTML         string    `json:"html_result"`
 	SenderId     string    `json:"sender_id"`
 	SenderEmail  string    `json:"sender_email"`
 	RecvEmail    string    `json:"recv_email"`
@@ -50,7 +49,6 @@ func (metadata *MailMetadata) Marshal() ([]byte, error) {
 		UserIP:       metadata.UserIP,
 		Action:       string(metadata.Action),
 		StatusUpdate: string(metadata.StatusUpdate),
-		HTML:         metadata.HTML,
 		SenderId:     metadata.SenderInfo.SenderId,
 		SenderEmail:  metadata.SenderInfo.SenderEmail,
 		RecvEmail:    metadata.SenderInfo.RecvEmail,
@@ -59,11 +57,11 @@ func (metadata *MailMetadata) Marshal() ([]byte, error) {
 }
 
 func (rc RedisConnector) QueryTrackerStatus(emailId string) (Status, error) {
-	val, err := rc.Client.HGetAll(rc.Ctx, emailId).Result()
+	val, err := rc.Client.HGet(rc.Ctx, emailId, "current_status").Result()
 	if err != nil {
 		return Untracked, err
 	}
-	return Status(val["current_status"]), nil
+	return Status(val), nil
 }
 
 func (rc RedisConnector) NotifyExternal(metadata *MailMetadata) error {
@@ -86,6 +84,7 @@ func (rc RedisConnector) NotifyExternal(metadata *MailMetadata) error {
 				"open_count":     "0",
 				"append_count":   "1",
 				"current_status": string(Attached),
+				"modified_html":  metadata.SenderInfo.HTML, // only store the raw HTML once
 				actionKey:        string(compressedData),
 			}
 		} else if err != nil {

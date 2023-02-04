@@ -14,5 +14,6 @@ Exercise left to the reader.
 
 - [ ] unit testing
 - [ ] link tracking implementation
+- [ ] default logging behavior
 - [ ] deploy to official ci tool to get the builld tags
 - [ ] write API design and architecture

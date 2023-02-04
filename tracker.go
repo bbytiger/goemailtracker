@@ -1,8 +1,10 @@
 package emailtracker
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -30,16 +32,16 @@ type MailMetadata struct {
 	UserIP       string
 	Action       Action
 	StatusUpdate Status
-	HTML         string
 	SenderInfo   *MailPII
 }
 
 // sender's personal identifying info
 type MailPII struct {
+	HTML        string `json:"html,omitempty"`
 	SenderId    string `json:"sender_id"`
 	SenderEmail string `json:"sender_email"`
 	RecvEmail   string `json:"recv_email"`
-	EmailId     string `json:"email_id"`
+	EmailId     string `json:"email_id,omitempty"`
 }
 
 type EmailTracker struct {
@@ -81,7 +83,8 @@ func NewEmailTracker(
 	}
 }
 
-func (tracker *EmailTracker) GetPIIFromQueryParams(url *url.URL) (*MailPII, error) {
+func (tracker *EmailTracker) GetPIIFromQueryParams(r *http.Request) (*MailPII, error) {
+	url := r.URL
 	encodedData := url.Query().Get("tr")
 	if encodedData == "" {
 		return nil, errors.New("no tracking info found")
@@ -94,6 +97,28 @@ func (tracker *EmailTracker) GetPIIFromQueryParams(url *url.URL) (*MailPII, erro
 		return nil, err
 	}
 	return &data, nil
+}
+
+func (tracker *EmailTracker) GetPIIFromResponseBody(r *http.Request) (*MailPII, error) {
+	// parse request body and unmarshal
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var msg MailPII
+	err = json.Unmarshal(body, &msg)
+	if err != nil {
+		return nil, err
+	}
+
+	// decode HTML field, request MUST have HTML field b64 encoded
+	decodedHTML, decodeErr := base64.StdEncoding.DecodeString(msg.HTML)
+	if decodeErr != nil {
+		return nil, decodeErr
+	}
+	msg.HTML = string(decodedHTML)
+	return &msg, nil
 }
 
 func (tracker *EmailTracker) GetURLFromPII(pii *MailPII) (*url.URL, error) {
@@ -116,10 +141,13 @@ func (tracker *EmailTracker) GetURLFromPII(pii *MailPII) (*url.URL, error) {
 
 func (tracker *EmailTracker) ExtractMetadata(r *http.Request) (*MailMetadata, error) {
 	// get PII
+	var pii *MailPII
+	var err error
 	if tracker.ActionToURLPath[AppendPixel] == r.URL.Path {
-		return nil, errors.New("ExtractMetadata cannot be called on AppendPixel action")
+		pii, err = tracker.GetPIIFromResponseBody(r)
+	} else {
+		pii, err = tracker.GetPIIFromQueryParams(r)
 	}
-	pii, err := tracker.GetPIIFromQueryParams(r.URL)
 	if err != nil {
 		tracker.Logger.LogPkgError(err)
 		return nil, err

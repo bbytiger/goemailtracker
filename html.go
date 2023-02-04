@@ -2,10 +2,10 @@ package emailtracker
 
 import (
 	"bytes"
-	"io"
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -70,25 +70,17 @@ func (tracker *EmailTracker) AppendPixelToHTML(
 	return b.String(), nil
 }
 
-// TODO: completely rewrite this endpoint
-func (tracker *EmailTracker) ServeAppendPixelHandler(w http.ResponseWriter, r *http.Request) {
+func (tracker *EmailTracker) ServeAppendHandler(w http.ResponseWriter, r *http.Request) {
 	// handle logging
 	tracker.Logger.LogRequest(r)
 	defer tracker.Logger.LogResponse(w)
 
-	// only POST and context-type: text/html allowed
+	// only POST and context-type: application/json allowed
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if r.Header.Get("Content-Type") != "text/html" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// parse html body
-	rawHTML, err := io.ReadAll(r.Body)
-	if err != nil {
+	if r.Header.Get("content-type") != "application/json" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -99,18 +91,36 @@ func (tracker *EmailTracker) ServeAppendPixelHandler(w http.ResponseWriter, r *h
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	modifiedHTML, err := tracker.AppendPixelToHTML(string(rawHTML), metadata)
-	if err != nil {
-		tracker.Logger.LogEndpointError(err)
+
+	// check if pixel already appended
+	query, queryErr := tracker.ExternalConnector.QueryTrackerStatus(metadata.SenderInfo.EmailId)
+	if queryErr != nil && query == Untracked {
+		// append pixel if emailId field does not exist
+		modifiedHTML, err := tracker.AppendPixelToHTML(
+			string(metadata.SenderInfo.HTML),
+			metadata,
+		)
+		if err != nil {
+			tracker.Logger.LogEndpointError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// assign new email id and modified HTML
+		metadata.SenderInfo.HTML = modifiedHTML
+		metadata.SenderInfo.EmailId = uuid.New().String()
+	}
+
+	// invoke external connector
+	connectorErr := tracker.ExternalConnector.NotifyExternal(metadata)
+	if connectorErr != nil {
+		tracker.Logger.LogEndpointError(connectorErr)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	// invoke external connector
-	tracker.ExternalConnector.NotifyExternal(metadata)
-
 	// write tracking pixel
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(modifiedHTML))
+	w.Write([]byte(metadata.SenderInfo.HTML))
 }

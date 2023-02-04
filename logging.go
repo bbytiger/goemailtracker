@@ -12,6 +12,8 @@ type Logger interface {
 
 type DefaultLogger struct{}
 
+// TODO default logging impl
+
 func (d DefaultLogger) LogRequest(r *http.Request) {
 
 }
@@ -21,5 +23,9 @@ func (d DefaultLogger) LogResponse(w http.ResponseWriter) {
 }
 
 func (d DefaultLogger) LogEndpointError(err error) {
+
+}
+
+func (d DefaultLogger) LogPkgError(err error) {
 
 }
