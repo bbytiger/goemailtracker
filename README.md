@@ -17,3 +17,4 @@ Exercise left to the reader.
 - [ ] default logging behavior
 - [ ] deploy to official ci tool to get the builld tags
 - [ ] write API design and architecture
+- [ ] html sanitize
